@@ -12,11 +12,6 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/video.js@8.5.2/dist/video-js.min.css">
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, minimal-ui">
     <style>
-        /* Make the video relative, instead of absolute, so that
-   the parent container will size based on the video. Also,
-   note the max-height rule. Note the line-height 0 is to prevent
-   a small artifact on the bottom of the video.
- */
 .video-js.vjs-fluid,
 .video-js.vjs-16-9,
 .video-js.vjs-4-3,
@@ -30,74 +25,216 @@ video.vjs-tech {
   padding-top: 0 !important;
   line-height: 0;
 }
-
-/* Fix the control bar due to us resetting the line-height on the video-js */
 .vjs-control-bar {
   line-height: 1;
 }
-body{background-color: black;}
+html, body { background-color: #121212; margin: 0; height: 100%; overflow: hidden; }
+#app, .v-application, .v-application--wrap {
+    height: 100% !important;
+    min-height: 100% !important;
+    display: flex;
+    flex-direction: column;
+}
+.player-fixed {
+    flex-shrink: 0;
+    position: relative;
+    z-index: 1;
+    background: #000;
+}
+.channel-scroll {
+    flex: 1;
+    overflow-y: auto;
+    overflow-x: hidden;
+    -webkit-overflow-scrolling: touch;
+}
+.channel-card {
+    transition: transform 0.2s;
+}
+.channel-card:hover {
+    transform: translateY(-2px);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5) !important;
+}
+.channel-card.active-channel {
+    border: 2px solid #448AFF !important;
+    position: relative;
+}
     </style>
 </head>
 <body>
     <div id="app">
-        <video v-if="playerSrc" :key="playerSrc" id="player"  class="video-js vjs-fluid"  controls>
-            <source type="application/x-mpegURL" :src="playerSrc">
-        </video>
+        <v-app dark style="background: #121212;">
+            <div class="player-fixed">
+                <video id="player" class="video-js vjs-fluid" controls>
+                    <source type="application/x-mpegURL" :src="playerSrc">
+                </video>
+            </div>
+            <div class="channel-scroll">
+            <v-container class="pt-4" v-if="m3us.length > 0">
+                <v-row>
+                    <v-col cols="6" sm="4" md="3" v-for="m3u in m3us" :key="m3u.location" class="pa-1">
+                        <v-card
+                            class="mx-auto channel-card fill-height d-flex flex-column"
+                            :class="{ 'active-channel': m3u.location === playerSrc }"
+                            outlined tile color="#1E1E1E"
+                            :style="m3u.location === playerSrc ? '' : 'border: 1px solid #444 !important;'"
+                            @click="m3u.location !== playerSrc && switchChannel(m3u)"
+                            :ripple="m3u.location !== playerSrc"
+                            :style-cursor="m3u.location !== playerSrc ? 'pointer' : 'default'"
+                        >
+                            <div class="d-flex flex-column flex-grow-1" :style="{ cursor: m3u.location !== playerSrc ? 'pointer' : 'default' }">
+                                <!-- Now Playing badge -->
+                                <div v-if="m3u.location === playerSrc" class="text-center py-1" style="background: #448AFF; font-size: 11px; font-weight: bold; color: white; letter-spacing: 1px;">
+                                    NOW PLAYING
+                                </div>
+
+                                <!-- Header: Logo & Name -->
+                                <div class="d-flex flex-column align-center pa-2 text-center">
+                                    <v-sheet width="60" height="40" color="transparent" class="mb-1 white rounded">
+                                        <v-img
+                                            height="100%"
+                                            contain
+                                            :src="m3u.attributes['tvg-logo']"
+                                            @error="handleLogoError(m3u)"
+                                        >
+                                            <template v-slot:placeholder>
+                                                <v-row class="fill-height ma-0" align="center" justify="center">
+                                                    <v-icon color="grey darken-2">mdi-television</v-icon>
+                                                </v-row>
+                                            </template>
+                                            <template v-slot:error>
+                                                <v-row class="fill-height ma-0" align="center" justify="center">
+                                                    <v-icon color="grey darken-2">mdi-television-off</v-icon>
+                                                </v-row>
+                                            </template>
+                                        </v-img>
+                                    </v-sheet>
+                                    <div class="text-subtitle-1 font-weight-bold text-truncate white--text" style="width: 100%;">
+                                        {{ m3u.attributes['tvg-name'] }}
+                                    </div>
+                                </div>
+
+                                <v-divider class="grey darken-2"></v-divider>
+
+                                <!-- Content: Program Info -->
+                                <div class="px-2 py-2 flex-grow-1 d-flex flex-column justify-start" style="min-height: 70px;">
+                                    <template v-if="epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']]">
+                                        <div class="text-body-2 font-weight-bold mb-1 white--text" style="line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
+                                             {{ epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].title }}
+                                        </div>
+                                        <v-spacer></v-spacer>
+                                        <div class="d-flex align-center justify-space-between caption grey--text text--lighten-1 mb-1">
+                                            <span>{{ epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].startStr }}</span>
+                                            <span>{{ epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].endStr }}</span>
+                                        </div>
+                                        <v-progress-linear
+                                            :value="epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].progress"
+                                            height="4"
+                                            color="blue accent-2"
+                                            rounded
+                                            background-color="grey darken-3"
+                                        ></v-progress-linear>
+                                    </template>
+                                    <template v-else>
+                                        <div class="caption grey--text text--darken-1 text-center py-2 my-auto">
+                                            정보 없음
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </v-card>
+                    </v-col>
+                </v-row>
+            </v-container>
+            </div>
+        </v-app>
     </div>
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.x/dist/vue.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+    <script src="/js/tv-common.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.7.16/dist/vue.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.7.2/dist/vuetify.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/video.js@8.5.2/dist/video.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/@videojs/http-streaming@3.5.3/dist/videojs-http-streaming.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/videojs-landscape-fullscreen@11.1.0/dist/videojs-landscape-fullscreen.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.9/dayjs.min.js"></script>
     <script>
         new Vue({
             el: '#app',
-            vuetify: new Vuetify({
-                theme: { dark: true }
-            }),
+            mixins: [TvMixin],
+            vuetify: new Vuetify({ theme: { dark: true } }),
             data() {
                 return {
-                    playerSrc: ''
+                    playerSrc: '',
+                    playerTitle: '',
+                    m3us: [],
+                    epgData: {},
+                    epgHour: 0,
+                    now: null,
+                    player: null
                 }
             },
+            computed: {},
             created() {
                 const query = new URLSearchParams(location.search)
                 this.playerSrc = query.get('id')
-                document.title = query.get('title')
-                
+                this.playerTitle = query.get('title')
+                document.title = this.playerTitle
+
+                this.now = dayjs()
+                setInterval(() => { this.now = dayjs(); }, 60 * 1000);
+
+                // Load from localStorage
+                try {
+                    const stored = localStorage.m3us
+                    if (stored) this.m3us = JSON.parse(stored)
+                    this.epgHour = parseInt(localStorage.epgHour) || 0
+                } catch(e) {}
+
+                this.loadEpg()
+
                 this.$nextTick(() =>{
                     setTimeout(()=> {
-                        const player = videojs('player', { 
+                        this.player = videojs('player', {
                             autoplay: true,
-       //                     userActions: {
-							// 	doubleClick: () =>{
-							// 		console.log(player.isFullscreen)
-							// 		if(player.isFullscreen()){
-							// 			player.exitFullscreen()
-							// 		}else{
-       //                 				player.requestFullscreen()
-							// 		}
-									
-							// 	}
-							// }
-                        }) 
-                        player.landscapeFullscreen();
-                        // player.requestFullscreen()
-                        // player.ready(function() {
-                            // document.querySelector('.vjs-fullscreen-control').click();
-
-                        // if (promise !== undefined) {
-                        //     promise.then(function() {
-                        //         console.log('완료?')
-                        //     // Autoplay started!
-                        //     }).catch(function(error) {
-                        //     // Autoplay was prevented.
-                        //     console.log(error)
-                        //     });
-                        // }
-                        // });
+                        })
+                        this.player.landscapeFullscreen();
                     }, 100)
                 })
+            },
+            methods: {
+                switchChannel(m3u) {
+                    this.playerSrc = m3u.location
+                    this.playerTitle = m3u.name
+                    document.title = m3u.name
+
+                    // URL 갱신 (뒤로가기 시 index.html로 가도록 replaceState)
+                    const newUrl = `player.html?id=${encodeURIComponent(m3u.location)}&title=${encodeURIComponent(m3u.name)}`
+                    history.replaceState(null, '', newUrl)
+
+                    // video.js 소스 교체 (페이지 새로고침 없음)
+                    if (this.player) {
+                        this.player.src({ type: 'application/x-mpegURL', src: m3u.location })
+                        this.player.play()
+                    }
+                },
+                async loadEpg() {
+                    try {
+                        let epgUrl = null;
+                        const epgList = localStorage.epgList ? JSON.parse(localStorage.epgList) : [];
+                        const selectedIdx = parseInt(localStorage.selectedEpgIdx) || 0;
+                        if (epgList[selectedIdx]) epgUrl = epgList[selectedIdx].url;
+                        if (!epgUrl) return;
+
+                        const cached = EpgCache.get(epgUrl);
+                        if (cached) {
+                            this.parseEPG(cached);
+                            return;
+                        }
+
+                        const data = await fetch(epgUrl);
+                        const xml = await data.text();
+                        EpgCache.set(epgUrl, xml);
+                        this.parseEPG(xml);
+                    } catch(e) {}
+                }
             }
         })
     </script>

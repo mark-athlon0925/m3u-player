@@ -24,11 +24,33 @@
 <body>
     <div id="app">
         <v-app dark>
+            <v-app-bar app dark dense flat color="#1E1E1E" style="border-bottom: 1px solid #333 !important;">
+                <v-icon class="mr-2">mdi-television-play</v-icon>
+                <v-toolbar-title class="text-subtitle-1 font-weight-bold"></v-toolbar-title>
+                <v-spacer></v-spacer>
+                <v-text-field
+                    v-if="m3us && m3us.length > 0"
+                    v-model="search"
+                    prepend-inner-icon="mdi-magnify"
+                    placeholder="채널 검색"
+                    single-line
+                    hide-details
+                    clearable
+                    dense
+                    outlined
+                    dark
+                    class="mx-2"
+                    style="max-width: 300px;"
+                ></v-text-field>
+                <v-spacer></v-spacer>
+                <v-btn icon @click="show = !show" :loading="loading">
+                    <v-icon>mdi-cog</v-icon>
+                </v-btn>
+            </v-app-bar>
             <v-main>
-                <v-container>
-                    <v-row v-if="!loading && m3uUrl && m3us.length > 0">
-                        <!-- Adjusted: 2 columns on mobile (cols=6) to show more items, 3 on tablet, 4 on desktop -->
-                        <v-col cols="6" sm="4" md="3" v-for="m3u in m3us" :key="m3u.title" class="pa-1">
+                <v-container class="pt-4">
+                    <v-row v-if="!loading && m3uUrl && filteredM3us.length > 0">
+                        <v-col cols="6" sm="4" md="3" v-for="m3u in filteredM3us" :key="m3u.title" class="pa-1">
                             <v-card class="mx-auto channel-card fill-height d-flex flex-column" outlined tile color="#1E1E1E" style="border: 1px solid #444 !important;">
                                 <a :href="m3u | convertLink" style="text-decoration: none; color: inherit;" class="d-flex flex-column flex-grow-1">
                                     
@@ -63,21 +85,21 @@
 
                                     <!-- Content: Program Info -->
                                     <div class="px-2 py-2 flex-grow-1 d-flex flex-column justify-start" style="min-height: 70px;">
-                                        <template v-if="getEpgInfo(m3u.attributes['tvg-id'] || m3u.attributes['tvg-name'])">
+                                        <template v-if="epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']]">
                                             <!-- Program Title -->
                                             <div class="text-body-2 font-weight-bold mb-1 white--text" style="line-height: 1.2; overflow: hidden; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;">
-                                                 {{ getEpgInfo(m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']).title }}
+                                                 {{ epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].title }}
                                             </div>
-                                            
+
                                             <v-spacer></v-spacer>
 
                                             <!-- Time & Progress -->
                                             <div class="d-flex align-center justify-space-between caption grey--text text--lighten-1 mb-1">
-                                                <span>{{ getEpgInfo(m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']).startStr }}</span>
-                                                <span>{{ getEpgInfo(m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']).endStr }}</span>
+                                                <span>{{ epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].startStr }}</span>
+                                                <span>{{ epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].endStr }}</span>
                                             </div>
                                             <v-progress-linear
-                                                :value="getEpgInfo(m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']).progress"
+                                                :value="epgInfoMap[m3u.attributes['tvg-id'] || m3u.attributes['tvg-name']].progress"
                                                 height="4"
                                                 color="blue accent-2"
                                                 rounded
@@ -94,29 +116,36 @@
                             </v-card>
                         </v-col>
                     </v-row>
-                    <v-row>
-                        <v-btn
-                            @click="show = !show"
-                            block
-                            :loading="loading"
-                            :disable="loading"
-                        >설정</v-btn>
-                        </v-row>
-                    <v-dialog width="500" v-model="show">
+                    <!-- 빈 상태 안내 -->
+                    <v-row v-if="!loading && (!m3uUrl || !m3us || m3us.length === 0)" justify="center" class="my-8">
+                        <v-col cols="12" class="text-center">
+                            <v-icon size="64" color="grey darken-1">mdi-television-guide</v-icon>
+                            <div class="text-h6 grey--text mt-4">채널이 없습니다</div>
+                            <div class="caption grey--text text--darken-1 mt-1">아래 설정 버튼에서 M3U URL을 등록해주세요</div>
+                        </v-col>
+                    </v-row>
+                    <!-- 검색 결과 없음 -->
+                    <v-row v-else-if="!loading && m3us.length > 0 && filteredM3us.length === 0" justify="center" class="my-8">
+                        <v-col cols="12" class="text-center">
+                            <v-icon size="48" color="grey darken-1">mdi-magnify-close</v-icon>
+                            <div class="text-subtitle-1 grey--text mt-2">검색 결과가 없습니다</div>
+                        </v-col>
+                    </v-row>
+                    <v-dialog max-width="500" v-model="show">
                         <v-card>
                             <v-card-title>설정</v-card-title>
                             <v-card-text>
                                 <v-form @submit.prevent="load(m3uUrl)">
-                                    <v-text-field v-model="m3uUrl" label="m3u url" :loading="m3uLoading" :disable="m3uLoading" @input="save('m3uUrl', m3uUrl)"></v-text-field>
+                                    <v-text-field v-model="m3uUrl" label="M3U URL" :loading="m3uLoading" :disabled="m3uLoading" @input="save('m3uUrl', m3uUrl)"></v-text-field>
                                     <div>
-                                        <v-btn @click="load(m3uUrl)" :loading="m3uLoading" :disable="m3uLoading">load</v-btn>
-                                        <v-btn @click="clear" :loading="m3uLoading" :disable="m3uLoading">clear</v-btn>
-                                        <v-switch label="m3uAutoLoad" color="primary" v-model="epgAutoLoad"></v-switch>
+                                        <v-btn @click="load(m3uUrl)" :loading="m3uLoading" :disabled="m3uLoading">불러오기</v-btn>
+                                        <v-btn @click="clear" :loading="m3uLoading" :disabled="m3uLoading">초기화</v-btn>
+                                        <v-switch label="자동 로드" color="primary" v-model="epgAutoLoad"></v-switch>
                                     </div>
                                 </v-form>
                             </v-card-text>
                             <v-card-text>
-                                now: {{ nowFormat }}
+                                현재 시각: {{ nowFormat }}
                                 <div class="d-flex align-center mb-2">
                                     <v-text-field v-model="newEpgUrl" label="EPG URL 추가" dense hide-details class="mr-2" :disabled="epgLoading" @keydown.enter="addEpg"></v-text-field>
                                     <v-btn small @click="addEpg" :disabled="epgLoading">추가</v-btn>
@@ -128,36 +157,44 @@
                                         <v-btn icon x-small @click="removeEpg(idx)"><v-icon small>mdi-close</v-icon></v-btn>
                                     </div>
                                 </v-radio-group>
-                                <v-text-field type="number" v-model="epgHour" label="addHour" :loading="epgLoading" @input="save('epgHour', epgHour)" :disable="epgLoading"></v-text-field>
-                                <v-btn @click="loadEpg(selectedEpgUrl)" :loading="epgLoading" :disable="epgLoading">load</v-btn>
-                                <v-btn @click="clearEpg" :loading="epgLoading" :disable="epgLoading">clear</v-btn>
+                                <v-text-field type="number" v-model="epgHour" label="EPG 시간 보정 (시)" :loading="epgLoading" @input="save('epgHour', epgHour)" :disabled="epgLoading"></v-text-field>
+                                <v-btn @click="loadEpg(selectedEpgUrl, true)" :loading="epgLoading" :disabled="epgLoading">불러오기</v-btn>
+                                <v-btn @click="clearEpg" :loading="epgLoading" :disabled="epgLoading">초기화</v-btn>
                             </v-card-text>
                             <v-card-actions>
                                 <v-spacer></v-spacer>
                                 <v-btn color="blue darken-1" text @click="show = false">닫기</v-btn>
-                                <v-btn @click="loadAll" :loading="loading" :disable="loading">전체 새로고침</v-btn>
+                                <v-btn @click="loadAll" :loading="loading" :disabled="loading">전체 새로고침</v-btn>
                             </v-card-actions>
-                            <div style="height: 300px"></div>
                         </v-card>
                     </v-dialog>
                 </v-container>
             </v-main>
+            <v-snackbar v-model="snackbar" :color="snackbarColor" :timeout="3000" bottom>
+                {{ snackbarText }}
+                <template v-slot:action="{ attrs }">
+                    <v-btn text v-bind="attrs" @click="snackbar = false">닫기</v-btn>
+                </template>
+            </v-snackbar>
         </v-app>
     </div>
     <script src="/js/util.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vue@2.x/dist/vue.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.x/dist/vuetify.js"></script>
+    <script src="/js/tv-common.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vue@2.7.16/dist/vue.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/vuetify@2.7.2/dist/vuetify.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/m3u-parser-generator@1/dist/browser-bundle.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/dayjs@1.11.9/dayjs.min.js"></script>
     <script>
         new Vue({
             el: '#app',
+            mixins: [TvMixin],
             vuetify: new Vuetify({
                 theme: { dark: true }
             }),
             data() {
                 return {
                     key: 0,
+                    search: '',
                     m3us: [],
                     m3uUrl: null,
                     epgList: [],
@@ -170,7 +207,10 @@
                     epgAutoLoad: true,
                     show: false,
                     epgHour: 0,
-                    now: null
+                    now: null,
+                    snackbar: false,
+                    snackbarText: '',
+                    snackbarColor: 'error'
                 }
             },
             filters: {
@@ -188,6 +228,15 @@
                 selectedEpgUrl() {
                     const epg = this.epgList[this.selectedEpgIdx];
                     return epg ? epg.url : null;
+                },
+                filteredM3us() {
+                    const list = this.m3us || [];
+                    if (!this.search) return list;
+                    const q = this.search.toLowerCase();
+                    return list.filter(m => {
+                        const name = (m.attributes['tvg-name'] || '').toLowerCase();
+                        return name.includes(q);
+                    });
                 }
             },
             watch:{
@@ -210,105 +259,44 @@
                     this.now = dayjs();
                 }, 60 * 1000);
 
-                const { epgAutoLoad, m3us , epgUrl, epgList, selectedEpgIdx, m3uUrl, apiKey, epgHour} = localStorage
-                this.m3uUrl = m3uUrl || apiKey
-                this.epgHour = epgHour || 0
-                this.epgAutoLoad =  epgAutoLoad ? JSON.parse(epgAutoLoad) : true
+                try {
+                    const { epgAutoLoad, m3us , epgUrl, epgList, selectedEpgIdx, m3uUrl, apiKey, epgHour} = localStorage
+                    this.m3uUrl = m3uUrl || apiKey
+                    this.epgHour = epgHour || 0
+                    this.epgAutoLoad =  epgAutoLoad ? JSON.parse(epgAutoLoad) : true
 
-                // Load epgList (migrate old epgUrl if exists)
-                if (epgList) {
-                    this.epgList = JSON.parse(epgList);
-                } else if (epgUrl) {
-                    this.epgList = [{ url: epgUrl }];
-                    delete localStorage.epgUrl;
-                }
-                this.selectedEpgIdx = parseInt(selectedEpgIdx) || 0;
+                    // Load epgList (migrate old epgUrl if exists)
+                    if (epgList) {
+                        this.epgList = JSON.parse(epgList);
+                    } else if (epgUrl) {
+                        this.epgList = [{ url: epgUrl }];
+                        delete localStorage.epgUrl;
+                    }
+                    this.selectedEpgIdx = parseInt(selectedEpgIdx) || 0;
 
-                if(this.epgAutoLoad){
-                    this.load(this.m3uUrl)
-                }else{
-                    this.m3us = JSON.parse(m3us) || []
+                    if(this.epgAutoLoad){
+                        this.load(this.m3uUrl)
+                    }else{
+                        this.m3us = JSON.parse(m3us) || []
+                    }
+                } catch(e) {
+                    console.warn('localStorage 읽기 실패:', e)
                 }
 
                 await this.loadEpg(this.selectedEpgUrl)
             },
             methods: {
-                handleLogoError(item) {
-                    // Prevent infinite loop
-                    if (item.logoRetried) return;
-                    
-                    item.logoRetried = true;
-                    const name = item.attributes['tvg-name'] || item.attributes['tvg-id'];
-                    if (!name) return;
-
-                    // Sanitize name for tv-logo repository format
-                    // Rule: Lowercase, spaces to dashes, remove special chars
-                    const sanitized = name.toLowerCase()
-                        .replace(/\s+/g, '-')     // Spaces to dashes
-                        .replace(/\(.*\)/g, '')   // Remove parenthesis content like (FHD)
-                        .replace(/[^a-z0-9\-]/g, ''); // Remove other special chars
-                    
-                    // Try Fallback Source (tv-logo/tv-logos repository)
-                    // You can add more repositories here
-                    const fallbackUrl = `https://raw.githubusercontent.com/tv-logo/tv-logos/main/countries/kr/${sanitized}.png`;
-                    
-                    // Update logo (Vue reactivity)
-                    this.$set(item.attributes, 'tvg-logo', fallbackUrl);
-                },
-                getEpgInfo(channel) {
-                    if (!channel) return null;
-                    if (!this.epgData || !this.epgData[channel]) return null;
-                    
-                    // Use reactive 'this.now' converted to Date for comparison
-                    const now = this.now ? this.now.toDate() : new Date();
-                    if (this.epgHour) {
-                        // Adjust 'now' based on epgHour offset only if needed for logic
-                        // But typically epgHour is applied to EPG data during parsing.
-                        // Let's check logic: parseEPG applies offset to start/stop. 
-                        // So we should compare with real current time.
-                        // BUT, if user set offset because their system time is different from EPG time...
-                        // Actually parseEPG applies offset to the PROGRAM times. 
-                        // So 'now' should be just real now.
-                    }
-                    
-                    const programs = this.epgData[channel];
-                    const prog = programs.find(p => now >= p.start && now < p.stop);
-
-                    if (!prog) return null;
-                    
-                    // Calculate progress using timestamps
-                    const totalMs = prog.stop - prog.start;
-                    const elapsedMs = now - prog.start;
-                    const progress = Math.min(100, Math.max(0, (elapsedMs / totalMs) * 100));
-                    
-                    // Helper for formatting time (HH:mm)
-                    const formatTime = (date) => {
-                        return dayjs(date).format('HH:mm');
-                    };
-
-                    return {
-                        title: prog.title,
-                        startStr: formatTime(prog.start),
-                        endStr: formatTime(prog.stop),
-                        progress: progress
-                    };
-                },
-                findEpg(channel) {
-                    const now = dayjs().add(this.epgHour, 'hour')
-                    const format = 'YYYY-MM-DD HH:mm:ss'
-                    const length = 14
-                    const r = this.epgs.filter(r => r.$.channel === channel).find(r => {
-                        const { start, stop } = r.$
-                        const dStart = dayjs(start.substring(0, length))
-                        const dStop = dayjs(stop.substring(0, length))
-                        if(dStart <= now && now <= dStop){
-                            return true
-                        }
-                    })
-                    return r
+                showSnackbar(text, color) {
+                    this.snackbarText = text
+                    this.snackbarColor = color || 'error'
+                    this.snackbar = true
                 },
                 save(key, value){
-                    localStorage[key] = value
+                    try {
+                        localStorage[key] = value
+                    } catch(e) {
+                        console.warn('localStorage 쓰기 실패:', e)
+                    }
                 },
                 async load(m3uUrl){
                     if(!m3uUrl || this.m3uLoading){
@@ -318,8 +306,12 @@
                         this.m3uLoading = true
                         const data = await fetch(`${m3uUrl}`)
                         if(data.status === 403){
-                            alert('사용 불가.')
+                            this.showSnackbar('사용 불가.')
                             this.clear()
+                            return
+                        }
+                        if(!data.ok){
+                            this.showSnackbar('M3U 로드 실패: ' + data.status)
                             return
                         }
                         localStorage.m3uUrl = m3uUrl
@@ -327,106 +319,46 @@
                         const { medias }  = m3uParserGenerator.M3uParser.parse(m3u);
                         this.m3us = medias
                         localStorage.m3us = JSON.stringify(this.m3us)
-                    }finally{
+                    } catch(e) {
+                        console.error(e)
+                        this.showSnackbar('M3U 로드 실패')
+                    } finally{
                         this.m3uLoading = false
                     }
                 },
                 clear(){
                     this.m3uUrl = null
-                    this.m3us = null
+                    this.m3us = []
                     delete localStorage.m3uUrl
                     delete localStorage.m3us
                 },
-                async loadEpg(epgUrl){
+                async loadEpg(epgUrl, forceRefresh){
                     if(!epgUrl || this.epgLoading){
                         return
                     }
                     try{
                         this.epgLoading = true
+
+                        if (!forceRefresh) {
+                            const cached = EpgCache.get(epgUrl);
+                            if (cached) {
+                                this.parseEPG(cached);
+                                return;
+                            }
+                        }
+
                         const data = await fetch(`${epgUrl}`)
                         localStorage.epgUrl = epgUrl
                         const xml = await data.text()
-                        
+                        EpgCache.set(epgUrl, xml);
                         this.parseEPG(xml);
                     } catch(e) {
                         console.error(e);
-                        alert('epg load fail');
+                        this.showSnackbar('EPG 로드 실패');
                     } finally {
                         this.epgLoading = false
                     }
                 },
-                parseEPG(xmlContent) {
-                    const parser = new DOMParser();
-                    const xmlDoc = parser.parseFromString(xmlContent, "text/xml");
-
-                    // Step 1: Build channel id → display-name mapping
-                    const channelMap = {};
-                    const channels = xmlDoc.getElementsByTagName("channel");
-                    for (let i = 0; i < channels.length; i++) {
-                        const ch = channels[i];
-                        const id = ch.getAttribute("id");
-                        const displayNames = ch.getElementsByTagName("display-name");
-                        const names = [];
-                        for (let j = 0; j < displayNames.length; j++) {
-                            names.push(displayNames[j].textContent);
-                        }
-                        channelMap[id] = names;
-                    }
-
-                    // Step 2: Parse programmes
-                    const programmes = xmlDoc.getElementsByTagName("programme");
-                    const newEpgData = {};
-
-                    const parseDate = (dateStr) => {
-                        if (!dateStr) return null;
-                        const y = dateStr.substring(0, 4);
-                        const m = parseInt(dateStr.substring(4, 6)) - 1;
-                        const d = dateStr.substring(6, 8);
-                        const h = dateStr.substring(8, 10);
-                        const min = dateStr.substring(10, 12);
-                        const s = dateStr.substring(12, 14);
-
-                        let date = new Date(y, m, d, h, min, s);
-
-                        if (this.epgHour) {
-                            date.setHours(date.getHours() + parseInt(this.epgHour));
-                        }
-                        return date;
-                    };
-
-                    for (let i = 0; i < programmes.length; i++) {
-                        const prog = programmes[i];
-                        const channelId = prog.getAttribute("channel");
-                        const start = parseDate(prog.getAttribute("start"));
-                        const stop = parseDate(prog.getAttribute("stop"));
-
-                        let title = "No Title";
-                        const titleNode = prog.getElementsByTagName("title")[0];
-                        if (titleNode) title = titleNode.textContent;
-
-                        if (!newEpgData[channelId]) {
-                            newEpgData[channelId] = [];
-                        }
-
-                        newEpgData[channelId].push({
-                            start,
-                            stop,
-                            title
-                        });
-                    }
-
-                    // Step 3: Create display-name aliases so M3U tvg-id/tvg-name can match
-                    for (const [id, names] of Object.entries(channelMap)) {
-                        if (!newEpgData[id]) continue;
-                        for (const name of names) {
-                            if (name !== id && !newEpgData[name]) {
-                                newEpgData[name] = newEpgData[id];
-                            }
-                        }
-                    }
-
-                    this.epgData = newEpgData;
-                }, 
                 addEpg() {
                     if (!this.newEpgUrl) return;
                     this.epgList.push({ url: this.newEpgUrl });
@@ -444,6 +376,7 @@
                     this.epgData = {};
                     delete localStorage.epgList;
                     delete localStorage.selectedEpgIdx;
+                    EpgCache.clear();
                 },
                 async loadAll(){
                     await Promise.all([
